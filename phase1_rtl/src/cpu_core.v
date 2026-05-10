@@ -43,7 +43,8 @@ module cpu_core #(
     localparam S_EXEC2   = 3'd2;  // read 3rd byte / execute 2-byte ops
     localparam S_WBACK   = 3'd3;  // writeback 3-byte results
     localparam S_POP2    = 3'd4;  // POP: update SP
-    localparam S_ACALL2  = 3'd5;  // ACALL: push PC high + SP update + jump
+    localparam S_ACALL2  = 3'd5;  // ACALL: push PC high + jump
+    localparam S_XCH2    = 3'd6;  // XCH A,direct: direct→ACC
 
     reg [2:0] state;
 
@@ -259,10 +260,12 @@ module cpu_core #(
                         state <= S_WBACK;
                     end else begin
                         execute_2byte();
-                        if (ir == 8'hD0) begin  // POP: SP update in S_POP2
+                        if (ir == 8'hD0) begin  // POP → S_POP2
                             state <= S_POP2; rom_addr <= pc;
                         end else if ((ir[4:0] == 5'b10001) && ir[7:5] != 3'b000) begin  // ACALL
                             state <= S_ACALL2; rom_addr <= pc;
+                        end else if (ir == 8'hC5) begin  // XCH A,direct → S_XCH2
+                            state <= S_XCH2; rom_addr <= pc;
                         end else begin
                             state <= S_FETCH; rom_addr <= pc;
                         end
@@ -282,9 +285,17 @@ module cpu_core #(
 
                 S_ACALL2: begin
                     iram_addr <= sp[6:0] + 7'd2;
-                    iram_we <= 1'b1; iram_wdata <= pc[15:8];  // push PC high
+                    iram_we <= 1'b1; iram_wdata <= pc[15:8];
                     sfr_we <= 1'b1; sfr_addr <= 8'h81; sfr_wdata <= sp + 8'd2;
                     pc = (pc & 16'hF800) | (({ir[7:5]} << 8) | op1);
+                    state <= S_FETCH;
+                end
+
+                S_XCH2: begin
+                    // Complete XCH A,direct: write SFR[op1] to ACC
+                    sfr_addr = op1;  // blocking: read SFR value
+                    sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= sfr_rdata;
+                    acc_fwd_valid <= 1'b1; acc_fwd_data <= sfr_rdata;
                     state <= S_FETCH;
                 end
 
@@ -382,9 +393,10 @@ module cpu_core #(
                 8'h83: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= rom_data; end  // rom_data at pc+acc
                 8'h93: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= rom_data; acc_fwd_valid<=1'b1; acc_fwd_data<=rom_data; end
 
-                // MOVX A,@DPTR (E0); MOVX @DPTR,A (F0)
-                8'hE0: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= 8'h00; acc_fwd_valid<=1'b1; acc_fwd_data<=8'h00; end  // XRAM not modeled
-                8'hF0: begin /* write ACC to XRAM — not modeled */ end
+                // MOVX A,@DPTR (E0); MOVX A,@R0 (E2); MOVX A,@R1 (E3)
+                8'hE0,8'hE2,8'hE3: begin sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=8'h00; acc_fwd_valid<=1'b1;acc_fwd_data<=8'h00; end
+                // MOVX @DPTR,A (F0); MOVX @R0,A (F2); MOVX @R1,A (F3)
+                8'hF0,8'hF2,8'hF3: begin /* XRAM write — not modeled */ end
 
                 // JMP @A+DPTR (73)
                 8'h73: pc = sfr_rdata + acc;  // simplified: use DPTR value
@@ -406,9 +418,44 @@ module cpu_core #(
                     iram_addr <= reg_rdata[6:0];
                     iram_we <= 1'b1; iram_wdata <= eff_acc;
                 end
+                // ALU A,@Ri: ADD(26-27), ADDC(36-37), ORL(46-47), ANL(56-57), XRL(66-67), SUBB(96-97)
+                8'h26,8'h27: begin rn_sel=(ir==8'h26)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc+iram_rdata);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc+iram_rdata); end
+                8'h36,8'h37: begin rn_sel=(ir==8'h36)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc+iram_rdata+psw_val[7]);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc+iram_rdata+psw_val[7]); end
+                8'h46,8'h47: begin rn_sel=(ir==8'h46)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc|iram_rdata);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc|iram_rdata); end
+                8'h56,8'h57: begin rn_sel=(ir==8'h56)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc&iram_rdata);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc&iram_rdata); end
+                8'h66,8'h67: begin rn_sel=(ir==8'h66)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc^iram_rdata);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc^iram_rdata); end
+                8'h96,8'h97: begin rn_sel=(ir==8'h96)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc-iram_rdata-psw_val[7]);
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc-iram_rdata-psw_val[7]); end
+                // INC @Ri(06-07), DEC @Ri(16-17)
+                8'h06,8'h07: begin rn_sel=(ir==8'h06)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    iram_we<=1'b1; iram_wdata<=(iram_rdata+8'd1); end
+                8'h16,8'h17: begin rn_sel=(ir==8'h16)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    iram_we<=1'b1; iram_wdata<=(iram_rdata-8'd1); end
+                // XCH A,@Ri(C6-C7), XCHD A,@Ri(D6-D7)
+                8'hC6,8'hC7: begin rn_sel=(ir==8'hC6)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=iram_rdata;
+                    acc_fwd_valid<=1'b1;acc_fwd_data<=iram_rdata;
+                    iram_we<=1'b1; iram_wdata<=eff_acc; end
+                8'hD6,8'hD7: begin rn_sel=(ir==8'hD6)?3'd0:3'd1; iram_addr<=reg_rdata[6:0];
+                    sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<={(eff_acc&8'hF0),(iram_rdata&8'h0F)};
+                    acc_fwd_valid<=1'b1;acc_fwd_data<={(eff_acc&8'hF0),(iram_rdata&8'h0F)};
+                    iram_we<=1'b1; iram_wdata<={(iram_rdata&8'hF0),(eff_acc&8'h0F)}; end
+                // MOV direct,@Ri (86-87) — handled in execute_2byte
+                // MOV @Ri,direct (A6-A7) — handled in execute_2byte
+
                 // RET, RETI
                 8'h22,8'h32: begin
-                    // Pop PC from stack — simplified
                     sfr_we <= 1'b1; sfr_addr <= 8'h81; sfr_wdata <= sp - 8'd2;
                 end
 
@@ -460,6 +507,14 @@ module cpu_core #(
                 // INC direct (05), DEC direct (15)
                 8'h05: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata + 8'd1; end
                 8'h15: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata - 8'd1; end
+
+                // ALU A,direct: ADD(25), ADDC(35), SUBB(95), ANL(55), ORL(45), XRL(65)
+                8'h25: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc+sfr_rdata); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc+sfr_rdata); end
+                8'h35: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc+sfr_rdata+psw_val[7]); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc+sfr_rdata+psw_val[7]); end
+                8'h95: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc-sfr_rdata-psw_val[7]); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc-sfr_rdata-psw_val[7]); end
+                8'h55: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc&sfr_rdata); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc&sfr_rdata); end
+                8'h45: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc|sfr_rdata); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc|sfr_rdata); end
+                8'h65: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc^sfr_rdata); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc^sfr_rdata); end
 
                 // MOV C,bit (A2), MOV bit,C (92)
                 8'hA2: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= (psw_val & 8'h7F) | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
@@ -523,10 +578,15 @@ module cpu_core #(
                 end
 
                 // MOV @R0,#imm (76) / MOV @R1,#imm (77)
-                8'h76,8'h77: begin
-                    rn_sel = (ir == 8'h76) ? 3'd0 : 3'd1;
-                    iram_addr <= reg_rdata[6:0];
-                    iram_we <= 1'b1; iram_wdata <= op1;
+                8'h76,8'h77: begin rn_sel=(ir==8'h76)?3'd0:3'd1; iram_addr<=reg_rdata[6:0]; iram_we<=1'b1; iram_wdata<=op1; end
+                // MOV direct,@Ri (86-87): write IRAM[Ri] to SFR[direct]
+                8'h86,8'h87: begin rn_sel=(ir==8'h86)?3'd0:3'd1; iram_addr<=reg_rdata[6:0]; sfr_we<=1'b1; sfr_addr<=op1; sfr_wdata<=iram_rdata; end
+                // MOV @Ri,direct (A6-A7): write SFR[direct] to IRAM[Ri]
+                8'hA6,8'hA7: begin rn_sel=(ir==8'hA6)?3'd0:3'd1; iram_addr<=reg_rdata[6:0]; sfr_addr=op1; iram_we<=1'b1; iram_wdata<=sfr_rdata; end
+                // XCH A,direct (C5) — 2-cycle: write ACC→direct now, direct→ACC in S_XCH2
+                8'hC5: begin
+                    sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= eff_acc;  // ACC → direct
+                    // direct → ACC handled in S_XCH2
                 end
 
                 // INC direct, DEC direct

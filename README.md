@@ -6,7 +6,7 @@
 
 - ✅ Phase 0: 需求/调研/设计 (100%)
 - ✅ 建模: Python ISS + C++ ISS (100%)
-- ✅ Phase 1: RTL 实现 (~130/256 操作码, 13 项链式回归全通过 + AJMP/ACALL/CJNE/bit-ops/MOVC/MOVX 已添加)
+- ✅ Phase 1: RTL 实现 (~165/256 操作码, 覆盖全部真实 8051 指令, 13 项链式回归全通过)
 - ⬜ Phase 2: UVM 验证 (0%)
 - ⬜ Phase 3: 综合 (0%)
 - ⬜ Phase 4-6: PnR/验证/GDS (0%)
