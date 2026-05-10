@@ -230,18 +230,51 @@ class CPU:
 
     # ===== Serial update =====
     def _update_serial(self):
-        """Check UART Rx buffer and trigger serial interrupt."""
+        """UART TX/RX with baud rate simulation. TX sends one bit per baud tick."""
         scon = self.mem.scon
+        mode = (scon >> 6) & 3  # SM0,SM1
+
+        # TX: Check if TI was set by previous transmission, clear if so
+        if scon & 0x02:  # TI set
+            self.mem.scon = scon & ~0x02  # clear TI
+
+        # TX: If SBUF was written (detected via SBUF != last value), start TX
+        sbuf_val = self.mem.read_sfr(SFR_SBUF)
+        if hasattr(self, '_last_sbuf') and sbuf_val != self._last_sbuf:
+            # New byte written to SBUF — start transmission
+            self._tx_byte = sbuf_val
+            self._tx_bit_count = 0
+            self._tx_busy = True
+            # TI will be set after all bits transmitted
+        self._last_sbuf = sbuf_val
+
+        # TX bit transmission
+        if getattr(self, '_tx_busy', False):
+            self._tx_bit_count += 1
+            bits_per_frame = 10 if mode == 1 else 11  # start + 8 data + stop (+ parity for mode 2/3)
+            if self._tx_bit_count >= bits_per_frame:
+                scon |= 0x02  # set TI
+                self.mem.scon = scon
+                self._tx_busy = False
+                self.request_interrupt(INT_VEC_UART, SFR_SCON, 1, IE_ES)  # TI interrupt
+
+        # RX: Check for incoming bytes
         if self.uart_rx_data and (scon & 0x10):  # REN enabled
             byte = self.uart_rx_data.pop(0)
             self.mem.write_sfr(SFR_SBUF, byte)
-            scon |= 0x01  # RI
+            scon |= 0x01  # set RI
             self.mem.scon = scon
             self.request_interrupt(INT_VEC_UART, SFR_SCON, 0, IE_ES)
 
     def uart_receive(self, byte: int):
-        """Enqueue a byte for UART reception."""
+        """Enqueue a byte for UART reception (external API)."""
         self.uart_rx_data.append(byte & 0xFF)
+        # Initialize TX state
+        if not hasattr(self, '_tx_busy'):
+            self._tx_busy = False
+            self._tx_byte = 0
+            self._tx_bit_count = 0
+            self._last_sbuf = 0
 
     # ===== State dump =====
     def get_state(self) -> dict:

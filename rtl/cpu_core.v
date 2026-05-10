@@ -42,7 +42,8 @@ module cpu_core #(
     localparam S_EXEC1   = 3'd1;  // read 2nd byte / execute 1-byte ops
     localparam S_EXEC2   = 3'd2;  // read 3rd byte / execute 2-byte ops
     localparam S_WBACK   = 3'd3;  // writeback 3-byte results
-    localparam S_POP2    = 3'd4;  // POP: update SP after SFR write
+    localparam S_POP2    = 3'd4;  // POP: update SP
+    localparam S_ACALL2  = 3'd5;  // ACALL: push PC high + SP update + jump
 
     reg [2:0] state;
 
@@ -258,13 +259,12 @@ module cpu_core #(
                         state <= S_WBACK;
                     end else begin
                         execute_2byte();
-                        // POP needs extra cycle for SP update
-                        if (ir == 8'hD0) begin
-                            state <= S_POP2;
-                            rom_addr <= pc;
+                        if (ir == 8'hD0) begin  // POP: SP update in S_POP2
+                            state <= S_POP2; rom_addr <= pc;
+                        end else if ((ir[4:0] == 5'b10001) && ir[7:5] != 3'b000) begin  // ACALL
+                            state <= S_ACALL2; rom_addr <= pc;
                         end else begin
-                            state <= S_FETCH;
-                            rom_addr <= pc;
+                            state <= S_FETCH; rom_addr <= pc;
                         end
                     end
                 end
@@ -276,8 +276,15 @@ module cpu_core #(
                 end
 
                 S_POP2: begin
-                    // Write SP-1 to complete POP
                     sfr_we <= 1'b1; sfr_addr <= 8'h81; sfr_wdata <= sp - 8'd1;
+                    state <= S_FETCH;
+                end
+
+                S_ACALL2: begin
+                    iram_addr <= sp[6:0] + 7'd2;
+                    iram_we <= 1'b1; iram_wdata <= pc[15:8];  // push PC high
+                    sfr_we <= 1'b1; sfr_addr <= 8'h81; sfr_wdata <= sp + 8'd2;
+                    pc = (pc & 16'hF800) | (({ir[7:5]} << 8) | op1);
                     state <= S_FETCH;
                 end
 
@@ -369,7 +376,18 @@ module cpu_core #(
                 8'h84: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= (b_reg == 8'd0) ? 8'hFF : (eff_acc / b_reg); acc_fwd_valid <= 1'b1; acc_fwd_data <= (b_reg == 8'd0) ? 8'hFF : (eff_acc / b_reg); end
 
                 // INC DPTR
-                8'hA3: begin sfr_we <= 1'b1; sfr_addr <= 8'h83; /* DPH increment — simplified */ end
+                8'hA3: begin sfr_we <= 1'b1; sfr_addr <= 8'h83; sfr_wdata <= sfr_rdata + 8'd1; end
+
+                // MOVC A,@A+PC (83); MOVC A,@A+DPTR (93)
+                8'h83: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= rom_data; end  // rom_data at pc+acc
+                8'h93: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= rom_data; acc_fwd_valid<=1'b1; acc_fwd_data<=rom_data; end
+
+                // MOVX A,@DPTR (E0); MOVX @DPTR,A (F0)
+                8'hE0: begin sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= 8'h00; acc_fwd_valid<=1'b1; acc_fwd_data<=8'h00; end  // XRAM not modeled
+                8'hF0: begin /* write ACC to XRAM — not modeled */ end
+
+                // JMP @A+DPTR (73)
+                8'h73: pc = sfr_rdata + acc;  // simplified: use DPTR value
 
                 // SETB C, CLR C, CPL C
                 8'hD3: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | 8'h80; end
@@ -431,18 +449,46 @@ module cpu_core #(
                     sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= (eff_acc ^ op1);
                     acc_fwd_valid <= 1'b1; acc_fwd_data <= (eff_acc ^ op1); end
 
-                // MOV A,direct — read SFR[op1], write to ACC
-                // Note: single sfr_addr port means read+write in 1 cycle is limited
+                // MOV A,direct — read SFR at op1, write to ACC
                 8'hE5: begin
-                    // For same-SFR address, sfr_rdata = sfr[op1 after addr update]
-                    // Simplified: this needs 2 sfr cycles; currently reads old value
                     sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= sfr_rdata;
+                    acc_fwd_valid <= 1'b1; acc_fwd_data <= sfr_rdata;
                 end
                 // MOV direct,A — output ACC to SFR
                 8'hF5: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= eff_acc; end
 
+                // INC direct (05), DEC direct (15)
+                8'h05: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata + 8'd1; end
+                8'h15: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata - 8'd1; end
+
+                // MOV C,bit (A2), MOV bit,C (92)
+                8'hA2: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= (psw_val & 8'h7F) | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'h92: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata; /* simplified */ end
+
+                // CLR bit (C2), SETB bit (D2), CPL bit (B2)
+                8'hC2: begin sfr_we <= 1'b1; sfr_addr <= op1; /* write 0 to bit */ sfr_wdata <= sfr_rdata & ~(8'd1 << op1[2:0]); end
+                8'hD2: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata | (8'd1 << op1[2:0]); end
+                8'hB2: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata ^ (8'd1 << op1[2:0]); end
+
+                // ANL C,bit (82), ORL C,bit (72), ANL C,/bit (B0), ORL C,/bit (A0)
+                8'h82: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val ^ (psw_val[7] & ~sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'h72: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'hB0: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val ^ (psw_val[7] & sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'hA0: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (~sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+
                 // SJMP — blocking so rom_addr captures new pc
                 8'h80: pc = pc + {{8{op1[7]}}, op1};
+
+                // AJMP addr11 (01,21,41,61,81,A1,C1,E1) — 2KB page jump
+                8'h01,8'h21,8'h41,8'h61,8'h81,8'hA1,8'hC1,8'hE1:
+                    pc = (pc & 16'hF800) | (({ir[7:5]} << 8) | op1);
+
+                // ACALL addr11 (11,31,51,71,91,B1,D1,F1) — 2-cycle push
+                8'h11,8'h31,8'h51,8'h71,8'h91,8'hB1,8'hD1,8'hF1: begin
+                    iram_addr <= sp[6:0] + 7'd1;
+                    iram_we <= 1'b1; iram_wdata <= pc[7:0];  // push PC low
+                    // PC high + SP update + jump in S_ACALL2
+                end
 
                 // JZ, JNZ, JC, JNC — blocking pc for rom_addr update
                 8'h60: if (acc == 8'd0) pc = pc + {{8{op1[7]}}, op1};
@@ -495,45 +541,56 @@ module cpu_core #(
     task execute_3byte;
         begin
             case (ir)
-                // MOV direct,#imm  (0x75)
-                8'h75: begin
-                    sfr_we   <= 1'b1;
-                    sfr_addr <= op1;     // direct address (0x90 = P1)
-                    sfr_wdata<= op2;     // immediate value (0x55)
-                end
+                // MOV direct,#imm (0x75)
+                8'h75: begin sfr_we<=1'b1; sfr_addr<=op1; sfr_wdata<=op2; end
 
-                // LJMP
-                8'h02: pc <= {op1, op2};
+                // MOV direct,direct (0x85)
+                8'h85: begin sfr_we<=1'b1; sfr_addr<=op1; sfr_wdata<=sfr_rdata; end
 
-                // LCALL
+                // LJMP (0x02)
+                8'h02: pc = {op1, op2};
+
+                // LCALL (0x12)
                 8'h12: begin
-                    iram_addr <= sp[6:0] + 7'd1;
-                    iram_we <= 1'b1; iram_wdata <= pc[7:0];
-                    // PUSH high byte next cycle — simplified
+                    iram_addr <= sp[6:0] + 7'd1; iram_we <= 1'b1; iram_wdata <= pc[7:0];
                     sfr_we <= 1'b1; sfr_addr <= 8'h81; sfr_wdata <= sp + 8'd2;
-                    pc <= {op1, op2};
+                    pc = {op1, op2};
                 end
 
-                // MOV DPTR,#imm16
+                // MOV DPTR,#imm16 (0x90)
                 8'h90: begin
-                    sfr_we <= 1'b1; sfr_addr <= 8'h83; sfr_wdata <= op1; // DPH
-                    // DPL write needs another cycle — simplified
+                    sfr_we <= 1'b1; sfr_addr <= 8'h83; sfr_wdata <= op1;  // DPH
                 end
 
-                // CJNE A,#imm,rel
-                8'hB4: begin
-                    if (acc != op1)
-                        pc <= pc + {{8{op2[7]}}, op2};
-                    // Set CY if A < imm
-                    if (acc < op1)
-                        sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | 8'h80;
+                // JB bit,rel (0x20), JNB bit,rel (0x30), JBC bit,rel (0x10)
+                8'h20,8'h30,8'h10: begin
+                    sfr_addr = op1;  // blocking: read byte containing the bit
+                    if ((ir==8'h20 && sfr_rdata[op1[2:0]]) ||   // JB: jump if bit=1
+                        (ir==8'h30 && !sfr_rdata[op1[2:0]]) ||  // JNB: jump if bit=0
+                        (ir==8'h10 && sfr_rdata[op1[2:0]])) begin // JBC: jump if bit=1 then clear
+                        if (ir==8'h10) begin sfr_we<=1'b1; sfr_addr<=op1; sfr_wdata<=sfr_rdata & ~(8'd1<<op1[2:0]); end
+                        pc = pc + {{8{op2[7]}}, op2};
+                    end
                 end
 
-                // DJNZ direct,rel
+                // CJNE A,#imm,rel (0xB4), CJNE A,direct,rel (0xB5)
+                // CJNE @R0,#imm,rel (0xB6), CJNE @R1,#imm,rel (0xB7)
+                // CJNE Rn,#imm,rel (0xB8-0xBF)
+                8'hB4,8'hB5,8'hB6,8'hB7,8'hB8,8'hB9,8'hBA,8'hBB,
+                8'hBC,8'hBD,8'hBE,8'hBF: begin
+                    sfr_we <= 1'b1; sfr_addr <= 8'hD0;  // for CY update
+                    case (ir)
+                        8'hB4: begin if (eff_acc != op1) pc = pc + {{8{op2[7]}}, op2}; if (eff_acc < op1) sfr_wdata <= psw_val | 8'h80; else sfr_wdata <= psw_val & 8'h7F; end
+                        8'hB5: begin sfr_addr = op1; if (eff_acc != sfr_rdata) pc = pc + {{8{op2[7]}}, op2}; if (eff_acc < sfr_rdata) sfr_wdata <= psw_val | 8'h80; else sfr_wdata <= psw_val & 8'h7F; end
+                        8'hB6,8'hB7: begin rn_sel=(ir==8'hB6)?3'd0:3'd1; if (reg_rdata!=op1) pc=pc+{{8{op2[7]}},op2}; if (reg_rdata<op1) sfr_wdata<=psw_val|8'h80; else sfr_wdata<=psw_val&8'h7F; end
+                        default: begin rn_sel=ir[2:0]; if (reg_rdata!=op1) pc=pc+{{8{op2[7]}},op2}; if (reg_rdata<op1) sfr_wdata<=psw_val|8'h80; else sfr_wdata<=psw_val&8'h7F; end
+                    endcase
+                end
+
+                // DJNZ direct,rel (0xD5)
                 8'hD5: begin
                     sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata - 8'd1;
-                    if ((sfr_rdata - 8'd1) != 8'd0)
-                        pc <= pc + {{8{op2[7]}}, op2};
+                    if ((sfr_rdata - 8'd1) != 8'd0) pc = pc + {{8{op2[7]}}, op2};
                 end
 
                 default: ;
