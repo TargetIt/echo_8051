@@ -46,3 +46,6 @@ runs/
 *.mag
 *.maglef
 synthesis.log
+tmp*.v
+_prom_*.v
+_tb_*.v
