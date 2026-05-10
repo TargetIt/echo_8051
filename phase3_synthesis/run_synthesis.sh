@@ -1,35 +1,36 @@
 #!/bin/bash
-# Phase 3: echo_8051 Synthesis with OpenLane + Sky130A
+# echo_8051 Synthesis with OpenLane + Sky130A
+# Prerequisites: PDK downloaded via volare, Docker installed
+# Usage: bash phase3_synthesis/run_synthesis.sh
 set -e
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-DESIGN_DIR="$PROJECT_ROOT/openlane/echo_8051"
-PDK_CACHE="$HOME/.volare"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "========================================"
-echo "  echo_8051 Synthesis (OpenLane)"
+echo "  echo_8051 Synthesis (OpenLane + Sky130A)"
 echo "========================================"
 
-mkdir -p "$PDK_CACHE"
+PDK_VERSION="c6d73a35f524070e85faff4a6a9eef49553ebc2b"
+PDK_ROOT="$HOME/.volare/volare/sky130/versions/$PDK_VERSION"
 
-# Run OpenLane synthesis only (not full flow)
+# Check PDK
+if [ ! -d "$PDK_ROOT/sky130A/libs.ref/sky130_fd_sc_hd" ]; then
+    echo "PDK not found. Downloading..."
+    volare enable --pdk sky130 "$PDK_VERSION"
+fi
+
+echo "PDK: $PDK_ROOT"
+echo "Running OpenLane flow..."
+
 docker run --rm \
-    -v "$PROJECT_ROOT":/work \
-    -v "$PDK_CACHE":/root/.volare \
-    -e PDK_ROOT=/root/.volare \
+    -v "$PROJECT_DIR":/work \
+    -v "$HOME/.volare":/root/.volare \
+    -e PDK_ROOT="$PDK_ROOT" \
+    -e OPENLANE_SKIP_VOLARE=1 \
     -w /work/openlane/echo_8051 \
     efabless/openlane:latest \
-    bash -c "
-        # Fetch PDK if needed
-        if [ ! -d /root/.volare/sky130 ]; then
-            echo '[INFO] Fetching Sky130 PDK...'
-            volare enable --pdk sky130 0fe599b2afb4ba5c6f5d7ee2b7e98cdb5e2e05ef || \
-            python3 -c 'import urllib.request; print(\"PDK download not available offline\")' || true
-        fi
-        # Run synthesis
-        run_synthesis
-    " 2>&1 | tee "$SCRIPT_DIR/synthesis.log"
+    flow.tcl 2>&1 | tail -30
 
 echo ""
-echo "Synthesis complete. Log: phase3_synthesis/synthesis.log"
+echo "Results: openlane/echo_8051/runs/"
+ls -td openlane/echo_8051/runs/RUN_* 2>/dev/null | head -1

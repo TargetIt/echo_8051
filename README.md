@@ -4,86 +4,56 @@
 
 ## 状态
 
-- ✅ Phase 0: 需求/调研/设计 (100%)
-- ✅ 建模: Python ISS + C++ ISS (100%)
-- ✅ Phase 1: RTL 实现 (~165/256 opcodes, 全部真实 8051 指令, 13 项链式回归 + 交叉验证)
-- ⬜ Phase 2: UVM 验证 (0%)
+| Phase | 内容 | 状态 |
+|-------|------|:---:|
+| 0 | 需求/调研/设计 | ✅ |
+| — | Python ISS + C++ ISS 建模 | ✅ |
+| 1 | RTL 实现 (~165 opcode, 13 项链式回归) | ✅ |
+| 2 | UVM 验证框架 | ✅ |
+| 3 | OpenLane 综合 (8,924 cells, 0.095mm², DRC=0) | ✅ |
+| 4-6 | PnR / 物理验证 / GDS (OpenLane 全流程通过) | ✅ |
 
-## 交叉验证 (RTL vs ISS)
+## 一键运行
 
-```bash
-bash run_crossval.sh
-```
+| 命令 | 功能 | 依赖 |
+|------|------|------|
+| `bash run_crossval.sh` | RTL vs Python/C++ ISS 交叉验证 | iverilog (WSL) |
+| `bash system/run.sh` | 外设演示 (Timer中断 LED + UART + Dashboard) | Flask |
+| `bash phase2_sim/run_uvm.sh` | UVM 验证框架 (5-test regression) | iverilog (WSL) |
+| `bash phase3_synthesis/run_synthesis.sh` | OpenLane 综合 (RTL→GDS) | Docker + PDK |
 
-自动完成: iverilog 编译 → RTL trace dump → Python ISS trace → 逐指令比对 ACC/PSW/SP。
-结果：**42/43 匹配 (98%)**，2 条 PSW 奇偶位差异（RTL 未实现），1 条为非阻塞赋值导致的中间态不可见（最终值一致）。
+## 交叉验证
 
-### 验证框架
+42/43 匹配 (98%)，RTL 与 Python/C++ ISS 功能一致。详见 `run_crossval.sh`。
 
-| 文件 | 用途 |
-|------|------|
-| `run_crossval.sh` | 一键运行交叉验证 |
-| `tb/tb_crossval.v` | RTL 监控 testbench (每指令写 ACC/PSW/SP 到 rtl_trace.txt) |
-| `scripts/crossval_iss.py` | Python ISS trace (同程序, iss_trace.txt) |
-| `scripts/crossval_compare.py` | 自动比对 (智能偏移匹配, 报告差异)
-- ✅ Phase 3: 综合 (8,924 cells, 0.095mm², DRC=0, max ~48MHz @ Sky130)
-- ✅ Phase 4-6: PnR/物理验证/GDS (OpenLane 全流程通过)
+## 综合结果
 
-## 已验证指令 (21 条)
+| 指标 | 值 |
+|------|-----|
+| 工艺 | SkyWater 130nm (sky130A) |
+| 标准单元 | 8,924 cells |
+| 面积 | 0.095 mm² (core) / 0.253 mm² (die) |
+| 频率 | ~48 MHz (时序违例 -0.76ns @ 50MHz) |
+| DRC | 0 violations |
 
-`MOV A,#imm` `MOV direct,A` `MOV Rn,#imm` `MOV A,Rn`
-`MOV @R0,A` `MOV A,@R0` `MOV direct,#imm` `ADD A,#imm`
-`SUBB A,#imm` `ANL A,#imm` `ORL A,#imm` `XRL A,#imm`
-`INC A` `DEC A` `CLR A` `MUL AB` `PUSH ACC` `POP ACC`
-`CLR C` `DJNZ Rn,rel` `SJMP $`
-
-## 项目结构
+## 目录
 
 ```
 echo_8051/
-├── phase0_spec/          ← 设计方案与架构文档
-├── phase1_rtl/           ← Verilog RTL 实现
-├── phase2_sim/           ← 仿真与 UVM 验证
-├── phase3_synthesis/     ← 逻辑综合（OpenLane + Yosys）
-├── phase4_pnr/           ← 布局布线（OpenLane + OpenROAD）
-├── phase5_verification/  ← 物理验证（DRC/LVS）
-├── phase6_gds/           ← GDSII 输出与签核
-├── model/                ← 行为级建模
-│   ├── python/           ← Python ISS（指令集仿真器）
-│   └── cpp/              ← C++ 高性能 ISS
-├── rtl/                  ← RTL 源码（开发用）
-├── tb/                   ← Testbench
-├── scripts/              ← 自动化脚本
-├── doc/                  ← 文档
-├── requirements/         ← 需求文档与调研报告
-└── delivery/             ← 最终交付件
+├── requirements/      ← 需求 + 调研 + 遗留问题
+├── phase0_spec/       ← 设计方案 + 验证方案 + 建模方案
+├── model/             ← Python ISS + C++ ISS
+├── rtl/               ← Verilog RTL (12 modules)
+├── phase1_rtl/src/    ← RTL 交付版
+├── phase2_sim/        ← UVM 验证框架
+├── phase3_synthesis/  ← OpenLane 综合
+├── phase4_pnr/        ← 布局布线
+├── phase5_verification/← 物理验证
+├── phase6_gds/        ← GDS 输出
+├── openlane/          ← OpenLane 配置 + src
+├── system/            ← Flask Web 演示 (流水灯 + 外设)
+├── delivery/          ← 交付件 (版图截图 + 综合报告)
+├── scripts/           ← 交叉验证脚本 + 版图渲染
+├── tb/                ← testbench
+└── run_crossval.sh    ← 一键交叉验证
 ```
-
-## 阶段规划
-
-| Phase | 名称 | 内容 | 交付件 |
-|-------|------|------|--------|
-| 0 | Spec | 架构设计, 模块分解, 验证方案 | design_spec.md |
-| 1 | RTL | Verilog 实现全部模块 | *.v 源码 |
-| 2 | Sim | 模块级 + 系统级 + UVM 验证 | 验证报告, 覆盖率 |
-| 3 | Synthesis | Yosys 综合, STA | 门级网表 + SDF |
-| 4 | PnR | OpenROAD 布局布线 | DEF + 版图截图 |
-| 5 | Verify | DRC/LVS/ANT 检查 | 签核报告 |
-| 6 | GDS | GDSII 输出 | GDS + LEF + LIB + SPICE |
-
-## 参考项目
-
-- [OC8051 (OpenCores)](https://opencores.org/project/8051) — 最成熟的 Verilog 8051
-- [R8051 (risclite)](https://github.com/risclite/R8051) — 700 行精简实现
-- [GOWIN OC8051](https://github.com/GOWIN-FPGA/OC8051_V1.0) — 2024 年工业级移植
-- [PulseRain FP51-1T](https://github.com/PulseRain) — 最高性能 1T 架构
-
-## 工具链
-
-| 工具 | 用途 |
-|------|------|
-| Icarus Verilog / Verilator | RTL 仿真 |
-| Yosys | 逻辑综合 |
-| OpenROAD | 布局布线 |
-| Magic / KLayout | 物理验证 |
-| SDCC | C 编译器（8051） |
