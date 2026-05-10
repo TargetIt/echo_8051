@@ -4,11 +4,16 @@
 sim_vvp
 sim_crossval
 sim_alu_vvp
+sim_*_*.vvp
 sim
 rtl_trace.txt
 iss_trace.txt
 cpp_trace.txt
 cpp_trace
+# UVM temp files
+_prom_*.v
+_tb_*.v
+sim_tb.v
 
 # Build
 *.o
