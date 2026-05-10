@@ -74,12 +74,14 @@ public:
 
     // Bit operations
     bool read_bit(u8 bit_addr) const {
-        return read_iram(bit_addr >> 3) & (1 << (bit_addr & 7));
+        u8 byte_addr = (bit_addr < 0x80) ? u8(0x20 + (bit_addr >> 3)) : u8(bit_addr & 0xF8);
+        return read_iram(byte_addr) & (1 << (bit_addr & 7));
     }
     void write_bit(u8 bit_addr, bool v) {
-        u8 byte = read_iram(bit_addr >> 3);
+        u8 byte_addr = (bit_addr < 0x80) ? u8(0x20 + (bit_addr >> 3)) : u8(bit_addr & 0xF8);
+        u8 byte = read_iram(byte_addr);
         v ? byte |= (1 << (bit_addr & 7)) : byte &= ~(1 << (bit_addr & 7));
-        write_iram(bit_addr >> 3, byte);
+        write_iram(byte_addr, byte);
     }
 
     std::array<u8, ROM_SIZE> rom;

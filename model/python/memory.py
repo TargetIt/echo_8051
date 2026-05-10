@@ -214,13 +214,19 @@ class Memory:
 
     # ---- Bit operations ----
     def read_bit(self, bit_addr: int) -> bool:
-        """Read a bit-addressable location (0x00-0x7F: IRAM 0x20-0x2F, 0x80-0xFF: SFR)."""
-        byte_addr = bit_addr >> 3
+        """Read a bit-addressable location."""
+        if bit_addr < 0x80:
+            byte_addr = 0x20 + (bit_addr >> 3)  # IRAM 0x20-0x2F
+        else:
+            byte_addr = bit_addr & 0xF8  # SFR: round down to nearest 0x?8
         bit_pos = bit_addr & 0x7
         return bool(self.read_iram(byte_addr) & (1 << bit_pos))
 
     def write_bit(self, bit_addr: int, value: bool):
-        byte_addr = bit_addr >> 3
+        if bit_addr < 0x80:
+            byte_addr = 0x20 + (bit_addr >> 3)
+        else:
+            byte_addr = bit_addr & 0xF8
         bit_pos = bit_addr & 0x7
         v = self.read_iram(byte_addr)
         if value:

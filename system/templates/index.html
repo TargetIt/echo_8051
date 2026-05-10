@@ -3,207 +3,236 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>echo_8051 — 流水灯</title>
+<title>echo_8051 — Peripheral Demo</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:'Segoe UI',monospace; background:#1a1a2e; color:#e0e0e0;
-       display:flex; flex-direction:column; align-items:center; min-height:100vh; }
-h1 { margin:20px 0 10px; font-size:1.8em; color:#00d4ff; }
-.subtitle { color:#888; font-size:0.85em; margin-bottom:30px; }
+body { font-family:'Segoe UI',monospace; background:#0d1117; color:#c9d1d9; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+h1 { margin:16px 0 4px; font-size:1.5em; color:#58a6ff; }
+.subtitle { color:#8b949e; font-size:0.8em; margin-bottom:16px; }
 
-.led-row { display:flex; gap:16px; margin:30px 0; }
-.led {
-    width:56px; height:56px; border-radius:50%;
-    background:#222; border:3px solid #444;
-    transition: all 0.15s ease;
-    box-shadow: 0 0 8px rgba(0,0,0,0.5);
-}
-.led.on-red  { background:#ff1744; border-color:#ff5252; box-shadow:0 0 24px #ff1744; }
-.led.on-green{ background:#00e676; border-color:#69f0ae; box-shadow:0 0 24px #00e676; }
+/* Tabs */
+.tabs { display:flex; gap:4px; margin-bottom:20px; }
+.tab { padding:8px 20px; background:#21262d; border:1px solid #30363d; border-radius:6px 6px 0 0; cursor:pointer; color:#8b949e; transition:0.2s; }
+.tab.active { background:#161b22; color:#58a6ff; border-bottom-color:#161b22; }
+.tab:hover { color:#c9d1d9; }
 
-.led-labels { display:flex; gap:16px; margin-bottom:10px; }
-.led-labels span { width:56px; text-align:center; font-size:0.7em; color:#888; }
+.panel { display:none; }
+.panel.active { display:block; }
 
-.controls { display:flex; gap:12px; margin:20px 0; flex-wrap:wrap; justify-content:center; }
-.btn {
-    padding:10px 24px; border:none; border-radius:6px; cursor:pointer;
-    font-size:1em; font-weight:bold; transition:0.2s;
-}
-.btn-start { background:#00c853; color:#fff; }
-.btn-start:hover { background:#00e676; }
-.btn-pause { background:#ff6d00; color:#fff; }
-.btn-pause:hover { background:#ff9100; }
-.btn-step  { background:#2979ff; color:#fff; }
-.btn-step:hover  { background:#448aff; }
-.btn:disabled { opacity:0.4; cursor:not-allowed; }
+/* LED row */
+.led-row { display:flex; gap:12px; margin:20px 0; }
+.led { width:44px; height:44px; border-radius:50%; background:#1a1a2e; border:3px solid #30363d; transition:0.1s; }
+.led.on { background:#ff1744; border-color:#ff5252; box-shadow:0 0 20px #ff1744; }
+.led-labels { display:flex; gap:12px; margin-bottom:8px; }
+.led-labels span { width:44px; text-align:center; font-size:0.65em; color:#484f58; }
 
-.speed-group { display:flex; align-items:center; gap:10px; margin:15px 0; }
-.speed-group label { color:#aaa; }
-.speed-group input[type=range] { width:200px; }
-.speed-val { color:#00d4ff; font-weight:bold; min-width:30px; }
+/* Controls */
+.controls { display:flex; gap:8px; margin:16px 0; flex-wrap:wrap; justify-content:center; }
+.btn { padding:8px 18px; border:none; border-radius:6px; cursor:pointer; font-size:0.9em; font-weight:bold; }
+.btn-start { background:#238636; color:#fff; }
+.btn-pause { background:#d29922; color:#fff; }
+.btn-reset { background:#da3633; color:#fff; }
+.btn-step { background:#1f6feb; color:#fff; }
+.btn:disabled { opacity:0.4; }
 
-.info-row { display:flex; gap:40px; margin:20px 0; font-size:0.85em; }
-.info-item { display:flex; flex-direction:column; align-items:center; }
-.info-label { color:#888; }
-.info-value { color:#00d4ff; font-weight:bold; font-size:1.2em; }
+/* Speed */
+.speed-group { display:flex; align-items:center; gap:8px; margin:10px 0; color:#8b949e; }
+.speed-group input[type=range] { width:160px; }
 
-.btn-press {
-    padding:20px 40px; border-radius:12px; border:3px solid #555;
-    background:#333; color:#fff; font-size:1.2em; cursor:pointer;
-    transition:0.1s; user-select:none;
-}
-.btn-press:active, .btn-press.pressed { background:#00c853; border-color:#00e676; }
+/* Info row */
+.info-row { display:flex; gap:24px; margin:12px 0; font-size:0.8em; flex-wrap:wrap; justify-content:center; }
+.info-item { display:flex; flex-direction:column; align-items:center; background:#161b22; padding:6px 12px; border-radius:6px; border:1px solid #21262d; }
+.info-label { color:#484f58; font-size:0.7em; }
+.info-value { color:#58a6ff; font-weight:bold; font-size:1.1em; }
 
-footer { margin-top:auto; padding:15px; color:#555; font-size:0.75em; }
+/* UART terminal */
+.terminal { background:#0d1117; border:2px solid #30363d; border-radius:8px; width:100%; max-width:600px; min-height:160px; max-height:240px; overflow-y:auto; padding:10px; font-size:0.8em; margin:10px 0; }
+.terminal .rx { color:#ff7b72; }
+.terminal .tx { color:#7ee787; }
+.terminal .info { color:#8b949e; }
+.term-input { display:flex; gap:8px; width:100%; max-width:600px; }
+.term-input input { flex:1; padding:8px; background:#161b22; border:1px solid #30363d; border-radius:4px; color:#c9d1d9; font-family:monospace; }
+.term-input button { padding:8px 16px; background:#1f6feb; border:none; border-radius:4px; color:#fff; cursor:pointer; }
+
+/* Dashboard SFR table */
+.sfr-table { border-collapse:collapse; width:100%; max-width:500px; margin:10px auto; font-size:0.8em; }
+.sfr-table td { padding:4px 10px; border-bottom:1px solid #21262d; }
+.sfr-table td:first-child { color:#8b949e; width:80px; }
+.sfr-table td:last-child { color:#58a6ff; font-weight:bold; text-align:right; }
+
+.int-btn { padding:16px 32px; border-radius:10px; border:2px solid #30363d; background:#161b22; color:#c9d1d9; font-size:1.1em; cursor:pointer; margin:10px; user-select:none; }
+.int-btn:active, .int-btn.pressed { background:#da3633; border-color:#ff7b72; }
+
+footer { margin-top:auto; padding:10px; color:#30363d; font-size:0.7em; }
 </style>
 </head>
 <body>
 
-<h1>echo_8051 — 流水灯</h1>
-<div class="subtitle">P1 端口驱动 8 个 LED · 8051 汇编程序: RL A 循环移位</div>
+<h1>echo_8051 — Peripheral Demo</h1>
+<div class="subtitle">Timer0 Interrupt LED · UART Echo · INT0 Toggle Direction</div>
 
-<div class="led-row" id="ledRow">
-</div>
-<div class="led-labels" id="ledLabels">
-</div>
-
-<div class="info-row">
-    <div class="info-item"><span class="info-label">PC</span><span class="info-value" id="infoPC">0000</span></div>
-    <div class="info-item"><span class="info-label">ACC</span><span class="info-value" id="infoACC">00</span></div>
-    <div class="info-item"><span class="info-label">P1</span><span class="info-value" id="infoP1">00</span></div>
-    <div class="info-item"><span class="info-label">FPS</span><span class="info-value" id="infoFPS">0</span></div>
+<div class="tabs">
+    <div class="tab active" onclick="switchTab('led')">💡 LED</div>
+    <div class="tab" onclick="switchTab('uart')">📟 UART</div>
+    <div class="tab" onclick="switchTab('dash')">📊 Dashboard</div>
 </div>
 
-<div class="controls">
-    <button class="btn btn-start" id="btnStart" onclick="doReset()">▶ 启动</button>
-    <button class="btn btn-pause" id="btnPause" onclick="doPause()">⏸ 暂停</button>
-    <button class="btn btn-step"  id="btnStep"  onclick="doStep()">⏭ 单步</button>
+<!-- LED Panel -->
+<div class="panel active" id="panel-led">
+    <div class="led-row" id="ledRow"></div>
+    <div class="led-labels" id="ledLabels"></div>
+
+    <div class="speed-group">
+        <span>速度:</span>
+        <input type="range" id="speedSlider" min="500" max="65000" value="50000" step="1000" oninput="doSpeed(this.value)">
+        <span id="speedVal">50ms</span>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-reset" onclick="doReset()">▶ 启动</button>
+        <button class="btn btn-step" onclick="doStep()">⏭ 单步</button>
+    </div>
+
+    <div class="info-row">
+        <div class="info-item"><span class="info-label">Timer Reload</span><span class="info-value" id="infoReload">50000</span></div>
+        <div class="info-item"><span class="info-label">Direction</span><span class="info-value" id="infoDir">LEFT</span></div>
+    </div>
 </div>
 
-<div class="speed-group">
-    <label>速度:</label>
-    <span style="color:#ff5252">快</span>
-    <input type="range" id="speedSlider" min="1" max="80" value="20" oninput="doSpeed(this.value)">
-    <span style="color:#448aff">慢</span>
-    <span class="speed-val" id="speedVal">20</span>
+<!-- UART Panel -->
+<div class="panel" id="panel-uart">
+    <div class="terminal" id="terminal">
+        <span class="info">UART terminal ready. Type a byte (0x00-0xFF) to send.</span>
+    </div>
+    <div class="term-input">
+        <input type="text" id="uartInput" placeholder="e.g. 0x41 or hello" onkeydown="if(event.key==='Enter')uartSend()">
+        <button onclick="uartSend()">Send</button>
+    </div>
+    <div style="margin-top:8px;font-size:0.7em;color:#8b949e;">8051 echoes back each byte via UART interrupt</div>
 </div>
 
-<div style="margin:15px 0;">
-    <button class="btn-press" id="btnPress"
+<!-- Dashboard Panel -->
+<div class="panel" id="panel-dash">
+    <table class="sfr-table" id="sfrTable"></table>
+    <div style="display:flex; justify-content:center; margin-top:12px;">
+        <button class="int-btn" id="int0Btn"
             onmousedown="doButton(true)" onmouseup="doButton(false)"
             onmouseleave="doButton(false)"
             ontouchstart="doButton(true)" ontouchend="doButton(false)">
-        按住按钮 (P3.0)
-    </button>
+            INT0 (P3.2)
+        </button>
+    </div>
 </div>
 
-<footer>echo_8051 · 8051 ISS 驱动 · Flask 后端</footer>
+<footer>echo_8051 · 8051 ISS + Flask · Timer/UART/INT0 interrupts</footer>
 
 <script>
-// Build 8 LEDs
+// ===== LEDs =====
+const leds = [];
 const ledRow = document.getElementById('ledRow');
 const ledLabels = document.getElementById('ledLabels');
-const leds = [];
-for (let i = 0; i < 8; i++) {
-    const led = document.createElement('div');
-    led.className = 'led';
-    led.id = 'led' + i;
-    ledRow.appendChild(led);
-    leds.push(led);
+for (let i=0;i<8;i++) {
+    const d=document.createElement('div'); d.className='led'; ledRow.appendChild(d); leds.push(d);
+    const l=document.createElement('span'); l.textContent='P1.'+i; ledLabels.appendChild(l);
+}
+function updateLEDs(p1) { for(let i=0;i<8;i++) leds[i].className='led'+(p1>>i&1?' on':''); }
 
-    const lbl = document.createElement('span');
-    lbl.textContent = 'P1.' + i;
-    ledLabels.appendChild(lbl);
+// ===== Tabs =====
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+    document.querySelector('.tab:nth-child('+({led:1,uart:2,dash:3}[name])+')').classList.add('active');
+    document.getElementById('panel-'+name).classList.add('active');
 }
 
+// ===== API =====
 let pollTimer = null;
-let frameCount = 0;
-let lastFpsTime = Date.now();
-
-function updateLEDs(p1) {
-    for (let i = 0; i < 8; i++) {
-        const on = (p1 >> i) & 1;
-        leds[i].className = 'led ' + (on ? 'on-red' : '');
-    }
-}
-
-function updateInfo(data) {
-    document.getElementById('infoPC').textContent = ('0000' + data.pc.toString(16).toUpperCase()).slice(-4);
-    document.getElementById('infoACC').textContent = ('00' + data.acc.toString(16).toUpperCase()).slice(-2);
-    document.getElementById('infoP1').textContent = ('00' + data.p1.toString(16).toUpperCase()).slice(-2);
-    updateLEDs(data.p1);
-}
+let prevTxLen = 0;
 
 async function pollState() {
     try {
-        const resp = await fetch('/api/state');
-        const data = await resp.json();
-        updateInfo(data);
-        frameCount++;
-        const now = Date.now();
-        if (now - lastFpsTime > 1000) {
-            document.getElementById('infoFPS').textContent = frameCount;
-            frameCount = 0;
-            lastFpsTime = now;
+        const r=await fetch('/api/state'); const d=await r.json();
+        updateLEDs(d.p1);
+        document.getElementById('infoReload').textContent = (d.th0<<8|d.tl0);
+        document.getElementById('infoDir').textContent = (d.p1&0x01)?'LEFT':'RIGHT';
+
+        // UART TX output
+        if (d.uart_tx && d.uart_tx.length > prevTxLen) {
+            const term = document.getElementById('terminal');
+            for (let i=prevTxLen; i<d.uart_tx.length; i++) {
+                const b = d.uart_tx[i];
+                term.innerHTML += `<br><span class="tx">TX: 0x${b.toString(16).padStart(2,'0').toUpperCase()} (${b>=32&&b<127?String.fromCharCode(b):'·'})</span>`;
+            }
+            term.scrollTop = term.scrollHeight;
+            prevTxLen = d.uart_tx.length;
         }
-    } catch(e) { /* server may not be running yet */ }
+
+        // Dashboard SFR
+        updateDash(d);
+    } catch(e) {}
+}
+
+function updateDash(d) {
+    const rows = [
+        ['PC', '0x'+d.pc.toString(16).toUpperCase().padStart(4,'0')],
+        ['ACC', '0x'+d.acc.toString(16).toUpperCase().padStart(2,'0')],
+        ['PSW', '0x'+d.psw.toString(16).toUpperCase().padStart(2,'0')+' CY='+((d.psw>>7)&1)],
+        ['SP', '0x'+d.sp.toString(16).toUpperCase().padStart(2,'0')],
+        ['DPTR', '0x'+d.dptr.toString(16).toUpperCase().padStart(4,'0')],
+        ['IE', '0x'+d.ie.toString(16).toUpperCase().padStart(2,'0')+' EA='+((d.ie>>7)&1)],
+        ['TCON','0x'+d.tcon.toString(16).toUpperCase().padStart(2,'0')+' TR0='+((d.tcon>>4)&1)+' TF0='+((d.tcon>>5)&1)],
+        ['TMOD','0x'+d.tmod.toString(16).toUpperCase().padStart(2,'0')],
+        ['TH0', '0x'+d.th0.toString(16).toUpperCase().padStart(2,'0')],
+        ['TL0', '0x'+d.tl0.toString(16).toUpperCase().padStart(2,'0')],
+        ['SCON','0x'+d.scon.toString(16).toUpperCase().padStart(2,'0')+' RI='+(d.scon&1)+' TI='+((d.scon>>1)&1)],
+        ['SBUF','0x'+d.sbuf.toString(16).toUpperCase().padStart(2,'0')],
+    ];
+    let html = '';
+    for (const [name,val] of rows)
+        html += `<tr><td>${name}</td><td>${val}</td></tr>`;
+    document.getElementById('sfrTable').innerHTML = html;
 }
 
 function startPolling() {
     if (pollTimer) return;
-    pollTimer = setInterval(pollState, 80);  // ~12 FPS polling
-    document.getElementById('btnStart').disabled = true;
-}
-
-function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    document.getElementById('btnStart').disabled = false;
+    pollTimer = setInterval(pollState, 100);
 }
 
 async function doReset() {
+    prevTxLen = 0;
+    document.getElementById('terminal').innerHTML = '<span class="info">UART terminal ready.</span>';
     await fetch('/api/reset', {method:'POST'});
     startPolling();
 }
-
-async function doPause() {
-    await fetch('/api/reset', {method:'POST'});  // reset stops the thread
-    stopPolling();
-    // re-init for manual stepping
+async function doStep() { const r=await fetch('/api/step',{method:'POST'}); const d=await r.json(); updateLEDs(d.p1); }
+async function doSpeed(v) {
+    const reload = 65536 - parseInt(v);
+    document.getElementById('speedVal').textContent = Math.round(reload/1000)+'ms';
+    await fetch('/api/speed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reload:reload})});
+}
+async function doButton(p) {
+    const btn=document.getElementById('int0Btn');
+    if(p)btn.classList.add('pressed');else btn.classList.remove('pressed');
+    await fetch('/api/button',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pressed:p})});
+}
+async function uartSend() {
+    const inp=document.getElementById('uartInput');
+    const val=inp.value.trim();
+    if(!val) return;
+    let byte;
+    if (val.startsWith('0x')||val.startsWith('0X')) byte=parseInt(val,16);
+    else if (val.length===1) byte=val.charCodeAt(0);
+    else for(const c of val) { await sendByte(c.charCodeAt(0)); }
+    if (byte!==undefined) await sendByte(byte);
+    inp.value='';
+}
+async function sendByte(b) {
+    b&=0xFF;
+    await fetch('/api/uart_send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({byte:b})});
+    document.getElementById('terminal').innerHTML+=`<br><span class="rx">RX: 0x${b.toString(16).padStart(2,'0').toUpperCase()} (${b>=32&&b<127?String.fromCharCode(b):'·'})</span>`;
 }
 
-async function doStep() {
-    stopPolling();
-    const resp = await fetch('/api/step', {method:'POST'});
-    const data = await resp.json();
-    updateInfo(data);
-}
-
-async function doSpeed(val) {
-    document.getElementById('speedVal').textContent = val;
-    // Map slider 1-80 to delay 0x01-0xFF (inverse: 1=fast=0x01, 80=slow=0xFF)
-    const delay = Math.round(1 + (val - 1) * (0xFE / 79));
-    await fetch('/api/speed', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({speed: delay})
-    });
-}
-
-async function doButton(pressed) {
-    const btn = document.getElementById('btnPress');
-    if (pressed) btn.classList.add('pressed');
-    else btn.classList.remove('pressed');
-    await fetch('/api/button', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({pressed: pressed})
-    });
-}
-
-// Auto-start
-window.onload = () => {
-    doReset().then(() => startPolling());
-};
+window.onload = () => { doReset().then(()=>startPolling()); };
 </script>
 </body>
 </html>
