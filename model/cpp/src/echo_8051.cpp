@@ -322,7 +322,6 @@ void CPU::reset() {
     intr_active = false;
     pending_intr.clear();
     uart_rx_buf.clear();
-    tx_busy = false; tx_byte = 0; tx_bit = 0; last_sbuf = 0;
 }
 
 void CPU::load_bytes(const u8* data, size_t len, u16 start_addr) {

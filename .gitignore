@@ -7,6 +7,8 @@ sim_alu_vvp
 sim
 rtl_trace.txt
 iss_trace.txt
+cpp_trace.txt
+cpp_trace
 
 # Build
 *.o
