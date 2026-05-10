@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>echo_8051 — 流水灯</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',monospace; background:#1a1a2e; color:#e0e0e0;
+       display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+h1 { margin:20px 0 10px; font-size:1.8em; color:#00d4ff; }
+.subtitle { color:#888; font-size:0.85em; margin-bottom:30px; }
+
+.led-row { display:flex; gap:16px; margin:30px 0; }
+.led {
+    width:56px; height:56px; border-radius:50%;
+    background:#222; border:3px solid #444;
+    transition: all 0.15s ease;
+    box-shadow: 0 0 8px rgba(0,0,0,0.5);
+}
+.led.on-red  { background:#ff1744; border-color:#ff5252; box-shadow:0 0 24px #ff1744; }
+.led.on-green{ background:#00e676; border-color:#69f0ae; box-shadow:0 0 24px #00e676; }
+
+.led-labels { display:flex; gap:16px; margin-bottom:10px; }
+.led-labels span { width:56px; text-align:center; font-size:0.7em; color:#888; }
+
+.controls { display:flex; gap:12px; margin:20px 0; flex-wrap:wrap; justify-content:center; }
+.btn {
+    padding:10px 24px; border:none; border-radius:6px; cursor:pointer;
+    font-size:1em; font-weight:bold; transition:0.2s;
+}
+.btn-start { background:#00c853; color:#fff; }
+.btn-start:hover { background:#00e676; }
+.btn-pause { background:#ff6d00; color:#fff; }
+.btn-pause:hover { background:#ff9100; }
+.btn-step  { background:#2979ff; color:#fff; }
+.btn-step:hover  { background:#448aff; }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+
+.speed-group { display:flex; align-items:center; gap:10px; margin:15px 0; }
+.speed-group label { color:#aaa; }
+.speed-group input[type=range] { width:200px; }
+.speed-val { color:#00d4ff; font-weight:bold; min-width:30px; }
+
+.info-row { display:flex; gap:40px; margin:20px 0; font-size:0.85em; }
+.info-item { display:flex; flex-direction:column; align-items:center; }
+.info-label { color:#888; }
+.info-value { color:#00d4ff; font-weight:bold; font-size:1.2em; }
+
+.btn-press {
+    padding:20px 40px; border-radius:12px; border:3px solid #555;
+    background:#333; color:#fff; font-size:1.2em; cursor:pointer;
+    transition:0.1s; user-select:none;
+}
+.btn-press:active, .btn-press.pressed { background:#00c853; border-color:#00e676; }
+
+footer { margin-top:auto; padding:15px; color:#555; font-size:0.75em; }
+</style>
+</head>
+<body>
+
+<h1>echo_8051 — 流水灯</h1>
+<div class="subtitle">P1 端口驱动 8 个 LED · 8051 汇编程序: RL A 循环移位</div>
+
+<div class="led-row" id="ledRow">
+</div>
+<div class="led-labels" id="ledLabels">
+</div>
+
+<div class="info-row">
+    <div class="info-item"><span class="info-label">PC</span><span class="info-value" id="infoPC">0000</span></div>
+    <div class="info-item"><span class="info-label">ACC</span><span class="info-value" id="infoACC">00</span></div>
+    <div class="info-item"><span class="info-label">P1</span><span class="info-value" id="infoP1">00</span></div>
+    <div class="info-item"><span class="info-label">FPS</span><span class="info-value" id="infoFPS">0</span></div>
+</div>
+
+<div class="controls">
+    <button class="btn btn-start" id="btnStart" onclick="doReset()">▶ 启动</button>
+    <button class="btn btn-pause" id="btnPause" onclick="doPause()">⏸ 暂停</button>
+    <button class="btn btn-step"  id="btnStep"  onclick="doStep()">⏭ 单步</button>
+</div>
+
+<div class="speed-group">
+    <label>速度:</label>
+    <span style="color:#ff5252">快</span>
+    <input type="range" id="speedSlider" min="1" max="80" value="20" oninput="doSpeed(this.value)">
+    <span style="color:#448aff">慢</span>
+    <span class="speed-val" id="speedVal">20</span>
+</div>
+
+<div style="margin:15px 0;">
+    <button class="btn-press" id="btnPress"
+            onmousedown="doButton(true)" onmouseup="doButton(false)"
+            onmouseleave="doButton(false)"
+            ontouchstart="doButton(true)" ontouchend="doButton(false)">
+        按住按钮 (P3.0)
+    </button>
+</div>
+
+<footer>echo_8051 · 8051 ISS 驱动 · Flask 后端</footer>
+
+<script>
+// Build 8 LEDs
+const ledRow = document.getElementById('ledRow');
+const ledLabels = document.getElementById('ledLabels');
+const leds = [];
+for (let i = 0; i < 8; i++) {
+    const led = document.createElement('div');
+    led.className = 'led';
+    led.id = 'led' + i;
+    ledRow.appendChild(led);
+    leds.push(led);
+
+    const lbl = document.createElement('span');
+    lbl.textContent = 'P1.' + i;
+    ledLabels.appendChild(lbl);
+}
+
+let pollTimer = null;
+let frameCount = 0;
+let lastFpsTime = Date.now();
+
+function updateLEDs(p1) {
+    for (let i = 0; i < 8; i++) {
+        const on = (p1 >> i) & 1;
+        leds[i].className = 'led ' + (on ? 'on-red' : '');
+    }
+}
+
+function updateInfo(data) {
+    document.getElementById('infoPC').textContent = ('0000' + data.pc.toString(16).toUpperCase()).slice(-4);
+    document.getElementById('infoACC').textContent = ('00' + data.acc.toString(16).toUpperCase()).slice(-2);
+    document.getElementById('infoP1').textContent = ('00' + data.p1.toString(16).toUpperCase()).slice(-2);
+    updateLEDs(data.p1);
+}
+
+async function pollState() {
+    try {
+        const resp = await fetch('/api/state');
+        const data = await resp.json();
+        updateInfo(data);
+        frameCount++;
+        const now = Date.now();
+        if (now - lastFpsTime > 1000) {
+            document.getElementById('infoFPS').textContent = frameCount;
+            frameCount = 0;
+            lastFpsTime = now;
+        }
+    } catch(e) { /* server may not be running yet */ }
+}
+
+function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollState, 80);  // ~12 FPS polling
+    document.getElementById('btnStart').disabled = true;
+}
+
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    document.getElementById('btnStart').disabled = false;
+}
+
+async function doReset() {
+    await fetch('/api/reset', {method:'POST'});
+    startPolling();
+}
+
+async function doPause() {
+    await fetch('/api/reset', {method:'POST'});  // reset stops the thread
+    stopPolling();
+    // re-init for manual stepping
+}
+
+async function doStep() {
+    stopPolling();
+    const resp = await fetch('/api/step', {method:'POST'});
+    const data = await resp.json();
+    updateInfo(data);
+}
+
+async function doSpeed(val) {
+    document.getElementById('speedVal').textContent = val;
+    // Map slider 1-80 to delay 0x01-0xFF (inverse: 1=fast=0x01, 80=slow=0xFF)
+    const delay = Math.round(1 + (val - 1) * (0xFE / 79));
+    await fetch('/api/speed', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({speed: delay})
+    });
+}
+
+async function doButton(pressed) {
+    const btn = document.getElementById('btnPress');
+    if (pressed) btn.classList.add('pressed');
+    else btn.classList.remove('pressed');
+    await fetch('/api/button', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({pressed: pressed})
+    });
+}
+
+// Auto-start
+window.onload = () => {
+    doReset().then(() => startPolling());
+};
+</script>
+</body>
+</html>
