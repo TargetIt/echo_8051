@@ -6,8 +6,26 @@
 
 - ✅ Phase 0: 需求/调研/设计 (100%)
 - ✅ 建模: Python ISS + C++ ISS (100%)
-- ✅ Phase 1: RTL 实现 (~165/256 操作码, 覆盖全部真实 8051 指令, 13 项链式回归全通过)
+- ✅ Phase 1: RTL 实现 (~165/256 opcodes, 全部真实 8051 指令, 13 项链式回归 + 交叉验证)
 - ⬜ Phase 2: UVM 验证 (0%)
+
+## 交叉验证 (RTL vs ISS)
+
+```bash
+bash run_crossval.sh
+```
+
+自动完成: iverilog 编译 → RTL trace dump → Python ISS trace → 逐指令比对 ACC/PSW/SP。
+结果：**42/43 匹配 (98%)**，2 条 PSW 奇偶位差异（RTL 未实现），1 条为非阻塞赋值导致的中间态不可见（最终值一致）。
+
+### 验证框架
+
+| 文件 | 用途 |
+|------|------|
+| `run_crossval.sh` | 一键运行交叉验证 |
+| `tb/tb_crossval.v` | RTL 监控 testbench (每指令写 ACC/PSW/SP 到 rtl_trace.txt) |
+| `scripts/crossval_iss.py` | Python ISS trace (同程序, iss_trace.txt) |
+| `scripts/crossval_compare.py` | 自动比对 (智能偏移匹配, 报告差异)
 - ⬜ Phase 3: 综合 (0%)
 - ⬜ Phase 4-6: PnR/验证/GDS (0%)
 

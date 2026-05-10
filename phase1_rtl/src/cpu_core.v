@@ -314,14 +314,12 @@ module cpu_core #(
 
                 // MOV A,Rn (E8-EF)
                 8'hE8,8'hE9,8'hEA,8'hEB,8'hEC,8'hED,8'hEE,8'hEF: begin
-                    rn_sel <= ir[2:0];  // will read reg_rdata next cycle
-                    // Need one more cycle for reg read; simplified: write to ACC
-                    // Actually reg_rdata is combinational from rn_sel
+                    rn_sel = ir[2:0];  // blocking: immediate reg_rdata update
                     sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= reg_rdata;
                 end
                 // MOV Rn,A (F8-FF)
                 8'hF8,8'hF9,8'hFA,8'hFB,8'hFC,8'hFD,8'hFE,8'hFF: begin
-                    rn_sel <= ir[2:0];
+                    rn_sel = ir[2:0];  // blocking
                     reg_we <= 1'b1; reg_wdata <= eff_acc;
                 end
                 // INC Rn (08-0F), DEC Rn (18-1F) — inline
@@ -472,7 +470,7 @@ module cpu_core #(
 
                 // MOV Rn,#imm (78-7F)
                 8'h78,8'h79,8'h7A,8'h7B,8'h7C,8'h7D,8'h7E,8'h7F: begin
-                    rn_sel <= ir[2:0];
+                    rn_sel = ir[2:0];  // blocking
                     reg_we <= 1'b1; reg_wdata <= op1;
                 end
 

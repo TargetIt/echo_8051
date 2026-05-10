@@ -1,9 +1,12 @@
-# Simulation
+# Simulation outputs
 *.vcd
 *.vvp
 sim_vvp
+sim_crossval
 sim_alu_vvp
 sim
+rtl_trace.txt
+iss_trace.txt
 
 # Build
 *.o
