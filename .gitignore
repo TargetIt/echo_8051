@@ -1,0 +1,30 @@
+# Simulation
+*.vcd
+*.vvp
+sim_vvp
+sim_alu_vvp
+sim
+
+# Build
+*.o
+*.obj
+*.exe
+*.out
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OpenLane runs (generated)
+runs/
