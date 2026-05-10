@@ -67,7 +67,7 @@ module timer (
                 if (t0_run && !t0_ct) begin
                     case (t0_mode)
                         2'd0: begin // 13-bit
-                            if (t0_val == 16'h1FFF) begin
+                            if (t0_val == 16'h03FF) begin
                                 {th0[4:0], tl0[4:0]} <= 10'd0;
                                 tf0_reg <= 1'b1;
                             end else begin
@@ -98,7 +98,7 @@ module timer (
                 if (t1_run && !t1_ct) begin
                     case (t1_mode)
                         2'd0: begin // 13-bit
-                            if ({th1[4:0], tl1[4:0]} == 10'h1FFF) begin
+                            if ({th1[4:0], tl1[4:0]} == 10'h3FF) begin
                                 {th1[4:0], tl1[4:0]} <= 10'd0;
                                 tf1_reg <= 1'b1;
                             end else begin

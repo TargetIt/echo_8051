@@ -31,5 +31,13 @@ Thumbs.db
 .vscode/
 .idea/
 
-# OpenLane runs (generated)
+# OpenLane runs (generated, very large)
 runs/
+*.gds
+*.spice
+*.sdf
+*.spef
+*.odb
+*.mag
+*.maglef
+synthesis.log

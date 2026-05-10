@@ -26,8 +26,8 @@ bash run_crossval.sh
 | `tb/tb_crossval.v` | RTL 监控 testbench (每指令写 ACC/PSW/SP 到 rtl_trace.txt) |
 | `scripts/crossval_iss.py` | Python ISS trace (同程序, iss_trace.txt) |
 | `scripts/crossval_compare.py` | 自动比对 (智能偏移匹配, 报告差异)
-- ⬜ Phase 3: 综合 (0%)
-- ⬜ Phase 4-6: PnR/验证/GDS (0%)
+- ✅ Phase 3: 综合 (8,924 cells, 0.095mm², DRC=0, max ~48MHz @ Sky130)
+- ✅ Phase 4-6: PnR/物理验证/GDS (OpenLane 全流程通过)
 
 ## 已验证指令 (21 条)
 
