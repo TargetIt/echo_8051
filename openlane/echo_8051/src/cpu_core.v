@@ -56,6 +56,14 @@ module cpu_core #(
     reg         acc_fwd_valid;     // forwarding buffer has valid data
     reg  [7:0]  acc_fwd_data;     // forwarded ACC value
     wire [7:0]  eff_acc = acc_fwd_valid ? acc_fwd_data : acc;
+    // Parity helper: XOR of all bits → 1 if odd number of 1s
+    function parity8;
+        input [7:0] v;
+        begin parity8 = ^v; end
+    endfunction
+
+    // Update PSW parity after ACC write
+    wire update_psw_p = sfr_we && (sfr_addr == 8'hE0);
 
     // ===== Register File (internal) =====
     reg  [2:0] rn_sel;
@@ -222,6 +230,7 @@ module cpu_core #(
                 S_FETCH: begin
                     // rom_data has the byte at rom_addr (set in previous cycle or reset)
                     ir <= rom_byte;
+                    rn_sel <= rom_byte[2:0];  // pre-set Rn for next S_EXEC1
                     psen_n <= 1'b0;
                     // Pre-fetch next byte
                     rom_addr <= pc + 12'd1;
@@ -314,7 +323,6 @@ module cpu_core #(
 
                 // MOV A,Rn (E8-EF)
                 8'hE8,8'hE9,8'hEA,8'hEB,8'hEC,8'hED,8'hEE,8'hEF: begin
-                    rn_sel = ir[2:0];  // blocking: immediate reg_rdata update
                     sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= reg_rdata;
                 end
                 // MOV Rn,A (F8-FF)
@@ -515,19 +523,23 @@ module cpu_core #(
                 8'h65: begin sfr_addr=op1; sfr_we<=1'b1;sfr_addr<=8'hE0;sfr_wdata<=(eff_acc^sfr_rdata); acc_fwd_valid<=1'b1;acc_fwd_data<=(eff_acc^sfr_rdata); end
 
                 // MOV C,bit (A2), MOV bit,C (92)
-                8'hA2: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= (psw_val & 8'h7F) | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
-                8'h92: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata; /* simplified */ end
+                8'hA2: begin
+                    sfr_addr = op1 & 8'hF8;  // blocking read of byte containing bit
+                    sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= (psw_val & 8'h7F) | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'h92: begin
+                    sfr_addr = op1 & 8'hF8;  // blocking read
+                    sfr_we <= 1'b1; sfr_addr <= op1 & 8'hF8; sfr_wdata <= (sfr_rdata & ~(8'd1 << op1[2:0])) | (psw_val[7] ? (8'd1 << op1[2:0]) : 8'h00); end
 
                 // CLR bit (C2), SETB bit (D2), CPL bit (B2)
-                8'hC2: begin sfr_we <= 1'b1; sfr_addr <= op1; /* write 0 to bit */ sfr_wdata <= sfr_rdata & ~(8'd1 << op1[2:0]); end
-                8'hD2: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata | (8'd1 << op1[2:0]); end
-                8'hB2: begin sfr_we <= 1'b1; sfr_addr <= op1; sfr_wdata <= sfr_rdata ^ (8'd1 << op1[2:0]); end
+                8'hC2: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= op1 & 8'hF8; sfr_wdata <= sfr_rdata & ~(8'd1 << op1[2:0]); end
+                8'hD2: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= op1 & 8'hF8; sfr_wdata <= sfr_rdata | (8'd1 << op1[2:0]); end
+                8'hB2: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= op1 & 8'hF8; sfr_wdata <= sfr_rdata ^ (8'd1 << op1[2:0]); end
 
                 // ANL C,bit (82), ORL C,bit (72), ANL C,/bit (B0), ORL C,/bit (A0)
-                8'h82: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val ^ (psw_val[7] & ~sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
-                8'h72: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
-                8'hB0: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val ^ (psw_val[7] & sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
-                8'hA0: begin sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (~sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'h82: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val & ~(sfr_rdata[op1[2:0]] ? 8'h00 : 8'h80); end
+                8'h72: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'hB0: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val & ~(sfr_rdata[op1[2:0]] ? 8'h80 : 8'h00); end
+                8'hA0: begin sfr_addr = op1 & 8'hF8; sfr_we <= 1'b1; sfr_addr <= 8'hD0; sfr_wdata <= psw_val | (sfr_rdata[op1[2:0]] ? 8'h00 : 8'h80); end
 
                 // SJMP — blocking so rom_addr captures new pc
                 8'h80: pc = pc + {{8{op1[7]}}, op1};
@@ -622,11 +634,11 @@ module cpu_core #(
 
                 // JB bit,rel (0x20), JNB bit,rel (0x30), JBC bit,rel (0x10)
                 8'h20,8'h30,8'h10: begin
-                    sfr_addr = op1;  // blocking: read byte containing the bit
+                    sfr_addr = op1 & 8'hF8;  // blocking: read byte containing the bit
                     if ((ir==8'h20 && sfr_rdata[op1[2:0]]) ||   // JB: jump if bit=1
                         (ir==8'h30 && !sfr_rdata[op1[2:0]]) ||  // JNB: jump if bit=0
                         (ir==8'h10 && sfr_rdata[op1[2:0]])) begin // JBC: jump if bit=1 then clear
-                        if (ir==8'h10) begin sfr_we<=1'b1; sfr_addr<=op1; sfr_wdata<=sfr_rdata & ~(8'd1<<op1[2:0]); end
+                        if (ir==8'h10) begin sfr_we<=1'b1; sfr_addr<=op1 & 8'hF8; sfr_wdata<=sfr_rdata & ~(8'd1<<op1[2:0]); end
                         pc = pc + {{8{op2[7]}}, op2};
                     end
                 end

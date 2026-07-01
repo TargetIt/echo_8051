@@ -92,7 +92,10 @@ module sfr_block (
                 SFR_IE:   sfr[SFR_IE]   <= ie_in;
                 SFR_IP:   sfr[SFR_IP]   <= ip_in;
                 SFR_PSW:  sfr[SFR_PSW]  <= wr_data;
-                SFR_ACC:  sfr[SFR_ACC]  <= wr_data;
+                SFR_ACC: begin
+                    sfr[SFR_ACC] <= wr_data;
+                    sfr[SFR_PSW][0] <= ^wr_data;  // P = parity of ACC
+                end
                 SFR_B:    sfr[SFR_B]    <= wr_data;
                 SFR_SP:   sfr[SFR_SP]   <= wr_data;
                 SFR_DPL:  sfr[SFR_DPL]  <= wr_data;
