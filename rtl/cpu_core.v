@@ -230,6 +230,7 @@ module cpu_core #(
                 S_FETCH: begin
                     // rom_data has the byte at rom_addr (set in previous cycle or reset)
                     ir <= rom_byte;
+                    rn_sel <= rom_byte[2:0];  // pre-set Rn for next S_EXEC1
                     psen_n <= 1'b0;
                     // Pre-fetch next byte
                     rom_addr <= pc + 12'd1;
@@ -322,7 +323,6 @@ module cpu_core #(
 
                 // MOV A,Rn (E8-EF)
                 8'hE8,8'hE9,8'hEA,8'hEB,8'hEC,8'hED,8'hEE,8'hEF: begin
-                    rn_sel = ir[2:0];  // blocking: immediate reg_rdata update
                     sfr_we <= 1'b1; sfr_addr <= 8'hE0; sfr_wdata <= reg_rdata;
                 end
                 // MOV Rn,A (F8-FF)
