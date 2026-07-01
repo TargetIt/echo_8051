@@ -33,29 +33,33 @@ module tb_crossval;
     end
 
     // Detect instruction completion: state transitions TO S_FETCH (0)
+    // Capture on negedge so SFR NBA writes from posedge are visible.
+    reg capture_flag;
     always @(posedge clk) begin
         if (!rst_n) begin
             prev_state <= 0;
+            capture_flag <= 0;
         end else begin
-            // Capture at S_FETCH entry: instruction completed, SFR writes visible
-            if (u_dut.u_cpu.state == 3'd0 && prev_state != 3'd0) begin
-                instr_count = instr_count + 1;
-                $fwrite(trace_fd, "%0d|%04X|%02X|%02X|%02X|",
-                    instr_count,
-                    u_dut.u_cpu.pc,           // PC points to NEXT instruction
-                    sfr_byte(7'h60),           // ACC at 0xE0
-                    sfr_byte(7'h50),           // PSW at 0xD0
-                    sfr_byte(7'h01));          // SP  at 0x81
-                // Dump changed IRAM bytes (0x00-0x7F) compactly
-                $fwrite(trace_fd, "\n");
-                // Stop after 200 instructions
-                if (instr_count >= 200) begin
-                    $fclose(trace_fd);
-                    $display("Trace complete: %0d instructions", instr_count);
-                    $finish;
-                end
-            end
+            capture_flag <= (u_dut.u_cpu.state == 3'd0 && prev_state != 3'd0);
             prev_state <= u_dut.u_cpu.state;
+        end
+    end
+
+    always @(negedge clk) begin
+        if (capture_flag) begin
+            instr_count = instr_count + 1;
+            $fwrite(trace_fd, "%0d|%04X|%02X|%02X|%02X|",
+                instr_count,
+                u_dut.u_cpu.pc,           // PC points to NEXT instruction
+                sfr_byte(7'h60),           // ACC at 0xE0
+                sfr_byte(7'h50),           // PSW at 0xD0
+                sfr_byte(7'h01));          // SP  at 0x81
+            $fwrite(trace_fd, "\n");
+            if (instr_count >= 200) begin
+                $fclose(trace_fd);
+                $display("Trace complete: %0d instructions", instr_count);
+                $finish;
+            end
         end
     end
 
